@@ -803,7 +803,7 @@ if __name__ == '__main__':
                 similar_cars.loc[:,'date_listed'] = pd.to_datetime(similar_cars.loc[:, 'date_listed'],
                                                                    yearfirst = True,
                                                                    errors = 'ignore')
-                st.write(similar_cars.info())
+                st.dataframe(similar_cars.info())
                 similar_cars_recent = similar_cars[similar_cars.date_listed.dt.date >= (datetime.today().date() - timedelta(days = 180))]
                 
                 if len(similar_cars_recent):
