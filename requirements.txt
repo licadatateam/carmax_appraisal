@@ -1,0 +1,16 @@
+pandas
+fuzzywuzzy
+google-cloud-storage
+google-cloud-bigquery
+pyarrow
+google-auth
+gspread
+matplotlib
+streamlit>=1.20.0
+streamlit-aggrid
+extra_streamlit_components
+matplotlib
+scikit-learn
+xgboost
+shap
+db-dtypes
