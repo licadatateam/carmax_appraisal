@@ -785,7 +785,6 @@ if __name__ == '__main__':
         demand_lower, demand_upper = 14, 90
         if len(similar_cars):
             st.dataframe(similar_cars)
-            st.write(type(similar_cars.date_listed.dtype))
             with st.expander('INFORMATION', expanded = True):
                 market_value = round(similar_cars['price'].mean(), 2)
                 st.info(f'Market value: {market_value}')
@@ -804,7 +803,8 @@ if __name__ == '__main__':
                 # similar_cars.loc[:,'date_listed'] = pd.to_datetime(similar_cars.loc[:, 'date_listed'],
                 #                                                    yearfirst = True,
                 #                                                    errors = 'ignore')
-                similar_cars_recent = similar_cars[similar_cars.date_listed.dt.date >= (datetime.today().date() - timedelta(days = 180))]
+                #similar_cars_recent = similar_cars[similar_cars.date_listed.dt.date >= (datetime.today().date() - timedelta(days = 180))]
+                similar_cars_recent = similar_cars[similar_cars.date_listed.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
                 
                 if len(similar_cars_recent):
                     avg_time_between_listings = abs(similar_cars_recent.date_listed.diff().mean().days)
