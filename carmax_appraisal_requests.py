@@ -611,7 +611,7 @@ def find_similar_cars(request_info, df):
         dataframe of compiled car info in market and backend
     '''
     df_ = df.copy()
-    df_.loc[:, 'date_listed'] = pd.to_datetime(df_['date_listed'])
+    df_.loc[:, 'date_listed'] = pd.to_datetime(df_.loc[:,'date_listed'])
     try:
         similar_cars = df_[(df_.make == request_info['make'].values[0]) & 
                           (df_.model == request_info['model'].values[0]) &
@@ -637,6 +637,7 @@ def find_similar_cars(request_info, df):
                                                               'transmission', 'mileage',
                                                               'price', 'location'],
                                                     keep = 'first')
+        similar_cars.loc[:, 'date_listed'] = pd.to_datetime(similar_cars.loc[:, 'date_listed'])
     except:
         similar_cars = pd.DataFrame()
     
@@ -784,7 +785,7 @@ if __name__ == '__main__':
         demand_lower, demand_upper = 14, 90
         if len(similar_cars):
             st.dataframe(similar_cars)
-            
+            st.write(type(similar_cars.date_listed.dtype))
             with st.expander('INFORMATION', expanded = True):
                 market_value = round(similar_cars['price'].mean(), 2)
                 st.info(f'Market value: {market_value}')
@@ -800,10 +801,9 @@ if __name__ == '__main__':
                 st.info('Projected GP: {:.2f}'.format(projected_gp))
                 
                 ## demand
-                similar_cars.loc[:,'date_listed'] = pd.to_datetime(similar_cars.loc[:, 'date_listed'],
-                                                                   yearfirst = True,
-                                                                   errors = 'ignore')
-                st.dataframe(similar_cars.info())
+                # similar_cars.loc[:,'date_listed'] = pd.to_datetime(similar_cars.loc[:, 'date_listed'],
+                #                                                    yearfirst = True,
+                #                                                    errors = 'ignore')
                 similar_cars_recent = similar_cars[similar_cars.date_listed.dt.date >= (datetime.today().date() - timedelta(days = 180))]
                 
                 if len(similar_cars_recent):
