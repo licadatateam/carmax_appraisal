@@ -784,8 +784,10 @@ if __name__ == '__main__':
         offer_rate = 0.8
         demand_lower, demand_upper = 14, 90
         if len(similar_cars):
-            st.dataframe(similar_cars)
-            with st.expander('INFORMATION', expanded = True):
+            with st.expander('**SIMILAR LISTINGS**', expanded = True):
+                st.dataframe(similar_cars)
+            
+            with st.expander('**INFORMATION**', expanded = True):
                 market_value = round(similar_cars['price'].mean(), 2)
                 st.info(f'Market value: {market_value}')
                 predicted_value = round(df_request['predicted_value'].values[0], 2)
@@ -813,7 +815,7 @@ if __name__ == '__main__':
                     
                 st.info('Average days between listings of similar cars: {}'.format(avg_time_between_listings))
                 
-            with st.expander('VERDICT', expanded = True):
+            with st.expander('**VERDICT**', expanded = True):
                 if pd.notna(projected_gp):
                     if (gp_lower <= projected_gp <= gp_upper):
                         gp_msg = 'Projected GP WITHIN accepted range.'
