@@ -33,7 +33,7 @@ from st_aggrid import GridOptionsBuilder, AgGrid
 import extra_streamlit_components as stx
 
 st.set_option('deprecation.showPyplotGlobalUse', False)
-# check import reference data presence
+
 global_data = ['carmax_makes', 'carmax_models', 'body_types', 'ph_locations']
 if all(True if d in globals() else False for d in global_data):
     pass

@@ -1452,7 +1452,6 @@ def clean_df(df, platform = 'CARMAX'):
     
     if platform == 'CARMAX':
         
-        # check import reference data presence
         global_data = ['carmax_makes', 'carmax_models', 'body_types', 'ph_locations']
         if all(True if d in globals() else False for d in global_data):
             pass
