@@ -13,4 +13,5 @@ matplotlib
 scikit-learn
 xgboost
 shap
+pytrends
 db-dtypes
