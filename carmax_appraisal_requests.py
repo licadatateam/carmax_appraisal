@@ -866,7 +866,7 @@ def calc_demand_score(request_info,
     bookings_filtered_recent = bookings_filtered[bookings_filtered.application_date.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
     
     
-    denom = sum([len(l) if l is not None else 0 for l in [listings, appraisals, tradeins]])
+    denom = sum([len(l) if len(l) != 0 else 0 for l in [listings, appraisals, tradeins]])
     
     if (denom != 0) or pd.notna(denom):
         bookings_listings_score = 1 - np.exp(-len(bookings_filtered_recent)/denom)
@@ -1195,9 +1195,9 @@ if __name__ == '__main__':
                 ## DEMAND
                 # bar plot of car listings
                 
-                listings_recent = similar_listings[similar_listings['date_listed'].apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
-                appraisals_recent = similar_appraisals[similar_appraisals['created_at'].apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
-                tradeins_recent = similar_tradeins[similar_tradeins['application_date'].apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+                listings_recent = similar_listings[similar_listings.date_listed.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+                appraisals_recent = similar_appraisals[similar_appraisals.created_at.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+                tradeins_recent = similar_tradeins[similar_tradeins.application_date.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
                 
                 if len(listings_recent):
                     avg_time_between_listings = abs(listings_recent.date_listed.diff().mean().days)
