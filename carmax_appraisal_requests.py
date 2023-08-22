@@ -1195,9 +1195,9 @@ if __name__ == '__main__':
                 ## DEMAND
                 # bar plot of car listings
                 
-                listings_recent = similar_listings[similar_listings.date_listed.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
-                appraisals_recent = similar_appraisals[similar_appraisals.created_at.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
-                tradeins_recent = similar_tradeins[similar_tradeins.application_date.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+                listings_recent = similar_listings[similar_listings.apply(lambda x: True if x['date_listed'].date() >= (datetime.today().date() - timedelta(days = 180)) else False, axis=1)]
+                appraisals_recent = similar_appraisals[similar_appraisals.apply(lambda x: True if x['created_at'].date() >= (datetime.today().date() - timedelta(days = 180)) else False, axis=1)]
+                tradeins_recent = similar_tradeins[similar_tradeins.apply(lambda x: True if x['application_date'].date() >= (datetime.today().date() - timedelta(days = 180)) else False, axis=1)]
                 
                 if len(listings_recent):
                     avg_time_between_listings = abs(listings_recent.date_listed.diff().mean().days)
