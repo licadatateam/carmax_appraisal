@@ -1158,8 +1158,7 @@ if __name__ == '__main__':
         similar_listings = find_similar_cars(request_info, df)
         
         ## Find similar appraisal requests aside from selected
-        similar_appraisals = df2[(df2.id != df_request.id.values[0]) & \
-                         (df2.make == df_request.make.iloc[0]) &\
+        similar_appraisals = df2[(df2.make == df_request.make.iloc[0]) &\
                          (df2.model == df_request.model.iloc[0]) &\
                          (df2.year.between(int(df_request.year.iloc[0]) - 1,
                                            int(df_request.year.iloc[0]) + 1))]
