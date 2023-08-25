@@ -722,7 +722,7 @@ def import_bookings():
         df_bookings.loc[:, 'model'] = df_bookings.apply(lambda x: config_lica.clean_model(x['model'], 
                                                                                         config_lica.carmax_makes,
                                                                                         config_lica.carmax_models), axis=1)
-        df_bookings.loc[:, 'year'] = df_bookings.apply(lambda x: int(config_lica.clean_year(x['year'])), axis=1)
+        df_bookings.loc[:, 'year'] = df_bookings.apply(lambda x: config_lica.clean_year(x['year']), axis=1)
         
         ## remove NaNs and duplicates
         df_bookings = df_bookings.dropna(subset = ['make', 'model' , 'year'])
@@ -858,7 +858,7 @@ def calc_demand_score(request_info,
     tradeins : DataFrame
     '''
     ## TODO : permanently fix year dtyping to make consistent
-    bookings.loc[:, 'year'] = bookings.loc[:, 'year'].astype(int)
+    bookings.loc[:, 'year'] = bookings.loc[:, 'year'].apply(lambda x: int(x) if pd.notna(x) else np.NaN)
     bookings_filtered = bookings[(bookings.make == request_info.make.iloc[0]) & \
                                  (bookings.model == request_info.model.iloc[0]) & \
                                  (bookings.year.between(int(request_info.year.iloc[0]) - 1,
