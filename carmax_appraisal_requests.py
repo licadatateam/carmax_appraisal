@@ -807,7 +807,7 @@ def calc_gp_score(market_value,
                   appraised_value, 
                   asking_price = None):
     '''
-    # maximum profit/score: appraised_value << market_value, asking_price << market_value
+    # maximum profit/score: appraised_value << market_value, asking_price << market_value, asking_price < appraised_value
     # minimum profit/score: asking_price >> market_value
     '''
     if asking_price is None:
@@ -815,9 +815,9 @@ def calc_gp_score(market_value,
     else:
         pass
     
-    gp_score = np.exp(-appraised_value/market_value) / (1.01 - np.exp(-asking_price/market_value))
+    avg_value = (market_value + appraised_value)*0.5
+    gp_score = 1 - 1/(1 + np.exp(-(5*(asking_price - avg_value)/avg_value))**2)
     # to map the scores
-    gp_score = np.sqrt(min(gp_score, 1))
 
     return gp_score
 
@@ -901,6 +901,26 @@ def calc_demand_score(request_info,
 
     return demand_score
 
+def check_mileage(mileage, df):
+
+    # extract mileage lower and upper bounds
+    mileage_bounds = []
+    try:
+        for n in str(mileage).split('-'):
+            if n != '100,000':
+                mileage_bounds.append(float(re.sub(',', '', n)))
+            else:
+                mileage_bounds = (100001, 250000)
+                break
+            
+        #mileage_bounds = [int(i) for i in re.findall('[0-9]+', re.sub(',', '', mileage))]
+    except:
+        mileage_bounds = (0, 250000)
+    
+    #st.write(mileage_bounds)
+    num_cars = len(df[df.mileage.between(mileage_bounds[0], mileage_bounds[1])])
+    return num_cars
+
 if __name__ == '__main__':
     st.title('Carmax Appraisal App')
     # column names required for this func (no null values)
@@ -916,11 +936,6 @@ if __name__ == '__main__':
     df_bookings = import_bookings()
     ## Import tradeins and consignments
     df_tc = import_tradeins()
-    
-    ## settings
-    gp_lower, gp_upper = 0.05, 0.35
-    offer_rate = 0.8
-    demand_lower, demand_upper = 14, 90
     
     setup_container = st.empty()
     
@@ -971,9 +986,10 @@ if __name__ == '__main__':
     chosen_tab = stx.tab_bar(data = [
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
         stx.TabBarItemData(id = '2', title = 'Manual', description = '')
-        ], default = '1')
+        ], default = '2')
     
     placeholder = st.container()
+    placeholder2 = st.container()
     
     if chosen_tab == '1':
         with placeholder:
@@ -1006,7 +1022,7 @@ if __name__ == '__main__':
     
     elif chosen_tab == '2':
         with placeholder:
-            with st.form('Car feature input'):
+            with st.form('Car Feature Form 1'):
                 makes_list = config_lica.carmax_makes.name.str.upper().tolist()
                 make = st.selectbox('Make',
                                     options = makes_list,
@@ -1045,16 +1061,22 @@ if __name__ == '__main__':
                                          index = 0)
                 fuel_type = fuel_type.upper()
                 
+                df_temp = df[(df.make == make) & (df.model == model) & (df.year == int(year)) & (
+                    df.transmission == transmission) & (df.fuel_type == fuel_type)]
                 
+                submitted1 = st.form_submit_button('Enter')
+        
+        with placeholder2:
+            with st.form('Car Feature Form 2'):
                 ## mileage
-                # mileage_opts = ['0-10000 KM', '10000-25000 KM', '25000-50000 KM',
-                #                 '50000+ KM']
                 mileage_list = ['0-10,000', '10,001-20,000', '20,001-30,000', '30,001-40,000', 
                                 '40,001-50,000', '50,001-60,000', '60,001-70,000', '70,001-80,000', 
                                 '80,001-90,000', '90,001-100,000', '100,001+']
                 
+                mileage_opts = [m for m in mileage_list if check_mileage(m, df_temp) > 1]
+                
                 mileage = st.selectbox('Mileage range',
-                                       options = mileage_list,
+                                       options = mileage_opts,
                                        index = 0)
                 
                 mileage_nums = re.findall('[0-9]+', re.sub(',', '', mileage))
@@ -1089,9 +1111,9 @@ if __name__ == '__main__':
                               'mileage' : approx_mileage(mileage, make, transmission, df),
                               'asking_price' : asking_price}
                 
-                submitted = st.form_submit_button('Enter')
+                submitted2 = st.form_submit_button('Enter')
                 
-                if submitted:
+                if submitted2:
                 
                     df1 = pd.DataFrame(list(specs_dict.values()), index = specs_dict.keys()).T
                     
@@ -1182,7 +1204,8 @@ if __name__ == '__main__':
                 # plot of selling price
                 asking_price = df_request.asking_price.iloc[0]
                 if asking_price is not None:
-                    base = min(predicted_value, asking_price)
+                    #base = min(predicted_value, asking_price)
+                    base = asking_price
                 else:
                     base = predicted_value
                     
@@ -1241,18 +1264,6 @@ if __name__ == '__main__':
         else:
             st.warning('No similar cars in the market. This car transaction is risky due to no data on potential profit and demand.')
         
-        
-    with st.expander('TOOL PARAMETERS', expanded = False):
-        st.markdown(f'''
-                    **Gross Profit**:\n
-                    -offer rate: {offer_rate}\n
-                    -GP lower limit: {gp_lower}\n
-                    -GP upper limit: {gp_upper}\n
-                    
-                    **Demand Thresholds**:\n
-                    -Demand lower limit: {demand_lower}\n
-                    -Demand upper limit: {demand_upper}\n
-                    ''')
-        
+
                     
                 
