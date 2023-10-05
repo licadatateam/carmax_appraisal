@@ -829,7 +829,7 @@ def get_gtrends_score(request_info):
     
     geo = 'PH' # country
     #timeframe = '{} {}'.format(past_six, datetime.today().date())
-    pytrends = TrendReq(hl='en-PH', tz = 480)
+    pytrends = TrendReq(hl='en-PH', tz = 480, retries = 3, backoff_factor = 0.25)
     pytrends.build_payload(search_terms, cat = 47, geo = geo,
                            timeframe='today 12-m')
 
@@ -863,6 +863,7 @@ def calc_demand_score(request_info,
                                  (bookings.model == request_info.model.iloc[0]) & \
                                  (bookings.year.between(int(request_info.year.iloc[0]) - 1,
                                                         int(request_info.year.iloc[0]) + 1))]
+    # utilize data from 6 months
     bookings_filtered_recent = bookings_filtered[bookings_filtered.application_date.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
     
     
@@ -876,6 +877,7 @@ def calc_demand_score(request_info,
     
     st.write(f'Bookings/Listings Score: {int(round(bookings_listings_score, 2)*100)}')
     
+    # get views of similar listings within last 6 months over all similar listings/bookings
     if len(bookings_filtered_recent):
         
         views = bookings_filtered_recent.views.sum()    
@@ -886,18 +888,20 @@ def calc_demand_score(request_info,
         
         views_score = 0
     
-    st.write(f'Views score : {int(round(views_score, 2)*100)}')
+    st.write(f'Views Score : {int(round(views_score, 2)*100)}')
     ## TODO: Incorporate trade-ins, consignments
     try:
+        # 0-1 ratio
         interest_over_time = get_gtrends_score(request_info)
         gtrends_score = 1 - np.exp(-interest_over_time)
+    
     except:
         gtrends_score = 0
     
-    st.write(f'G-Trends Score : {int(round(gtrends_score, 2)*100)}')
+    st.write(f'Google Trends Score : {int(round(gtrends_score, 2)*100)}')
     
-    demand_score = bookings_listings_score * 0.6 + \
-        gtrends_score * 0.3 + views_score * 0.1
+    demand_score = bookings_listings_score * 0.45 + \
+        gtrends_score * 0.45 + views_score * 0.1
 
     return demand_score
 
@@ -920,6 +924,15 @@ def check_mileage(mileage, df):
     #st.write(mileage_bounds)
     num_cars = len(df[df.mileage.between(mileage_bounds[0], mileage_bounds[1])])
     return num_cars
+
+def get_body_type(df, 
+                  make : str, 
+                  model : str) -> [str, np.NaN]:
+    sim = df[(df.make == make) & (df.model == model)]
+    try:
+        return sim['body_type'].mode().iloc[0]
+    except:
+        return np.NaN
 
 if __name__ == '__main__':
     st.title('Carmax Appraisal App')
@@ -1077,7 +1090,8 @@ if __name__ == '__main__':
                 
                 mileage = st.selectbox('Mileage range',
                                        options = mileage_opts,
-                                       index = 0)
+                                       index = 0,
+                                       help = 'options change depending on the previous form inputs.')
                 
                 mileage_nums = re.findall('[0-9]+', re.sub(',', '', mileage))
                 if len(mileage_nums) == 2:
@@ -1090,16 +1104,22 @@ if __name__ == '__main__':
                 ## body type
                 body_type_list = ['SUV', 'SEDAN', 'VAN', 'PICKUP TRUCK', 
                                   'HATCHBACK', 'CROSSOVER']
+                
+                # get default/popular body type for given make, model
+                body_type_def = get_body_type(df, make, model)
+                
                 body_type = st.selectbox('Body Type',
-                                         options = body_type_list,
-                                         index = 0)
+                                         options=body_type_list,
+                                         index=body_type_list.index(body_type_def) if body_type_def in body_type_list else 0)
+
                 body_type = body_type.upper()
                 
                 asking_price = st.number_input('Asking Price',
                                                min_value = 0,
                                                max_value = 5000000,
                                                step = 500,
-                                               value = 300000)
+                                               value = 300000,
+                                               help = 'price customer aims to sell to Carmax')
                 
                 specs_dict = {'id' : 1,
                               'make' : make,
@@ -1191,10 +1211,10 @@ if __name__ == '__main__':
                                                      int(df_request.year.iloc[0]) + 1))]
 
         if len(similar_listings):
-            with st.expander('**SIMILAR LISTINGS**', expanded = False):
+            with st.expander('**Similar Listings**', expanded = False):
                 st.dataframe(similar_listings)
             
-            with st.expander('**INFORMATION**', expanded = True):
+            with st.expander('**Information**', expanded = True):
                 market_value = round(similar_listings['price'].mean(), 2)
                 st.write(f'Market value: {market_value}')
                 predicted_value = round(df_request['predicted_value'].values[0], 2)
@@ -1238,7 +1258,7 @@ if __name__ == '__main__':
                 st.write('Average days between listings of similar cars: {}'.format(avg_time_between_listings))
                 
                 
-            with st.expander('**VERDICT**', expanded = True):
+            with st.expander('**Scores**', expanded = True):
                 
                 gp_score = calc_gp_score(market_value,
                                          predicted_value,
@@ -1254,7 +1274,7 @@ if __name__ == '__main__':
                 
                 st.write(f'**Demand Score**: {int(demand_score*100)}')
                 
-                overall_score = gp_score * 0.7 + demand_score * 0.3
+                overall_score = gp_score * 0.8 + demand_score * 0.2
                 
                 st.write(f'**Overall Score**: {int(overall_score*100)}')
                 
