@@ -1170,9 +1170,9 @@ if __name__ == '__main__':
             ## Output predicted appraised value for each entry (with shap breakdown)
             show_cols = ['date', 'id', 'status', 'make', 'model', 'year', 
                          'transmission', 'fuel_type', 'mileage', 'body_type', 
-                         'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 'market_value_min', 
-                         'market_value_max', 'market_value_std', 'projected_gp', 
-                         'saleability', 'url']
+                         'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 
+                         'market_value_min', 'market_value_max', 'market_value_std', 'asking_price', 
+                         'projected_gp', 'saleability', 'url']
 
             cmx_container.empty()
             
