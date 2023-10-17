@@ -629,7 +629,7 @@ def request_select(df_data : pd.DataFrame):
     gb.configure_default_column(width = 100)
     gb.configure_column('date', 
                         headerCheckboxSelection = True)
-    
+    gb.configre_column('id', hide = True)
     try:
         custom_col_size = ['date',
                            'model', 
@@ -1168,7 +1168,7 @@ if __name__ == '__main__':
             df2.loc[:, 'predicted_value'] = df_pred.round()
         
             ## Output predicted appraised value for each entry (with shap breakdown)
-            show_cols = ['date', 'status', 'make', 'model', 'year', 
+            show_cols = ['id', 'date', 'status', 'make', 'model', 'year', 
                          'transmission', 'fuel_type', 'mileage', 'body_type', 
                          'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 'market_value_min', 
                          'market_value_max', 'market_value_std', 'projected_gp', 
