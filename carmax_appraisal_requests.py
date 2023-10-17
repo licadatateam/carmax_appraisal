@@ -644,10 +644,7 @@ def request_select(df_data : pd.DataFrame):
     
     gridOptions = gb.build()
     
-    df_display.style.format(precision = 2,
-                            thousands = ',',
-                            decimal = '.')
-    
+
     # selection settings
     data_selection = AgGrid(
         df_display,
@@ -1137,9 +1134,9 @@ if __name__ == '__main__':
             
             appraisal_container.empty()
             
-            st.caption('Click on an entry in the table to display appraisal request data.')
-            
             table = df2[show_cols + ['predicted_value']]
+            
+            st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
             
             df_request = request_select(table)
             
