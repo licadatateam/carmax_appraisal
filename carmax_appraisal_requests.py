@@ -629,7 +629,7 @@ def request_select(df_data : pd.DataFrame):
     gb.configure_default_column(width = 100)
     gb.configure_column('date', 
                         headerCheckboxSelection = True)
-    gb.configre_column('id', hide = True)
+    gb.configure_column('id', hide = True)
     try:
         custom_col_size = ['date',
                            'model', 
