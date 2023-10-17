@@ -167,7 +167,7 @@ def feature_engineering(df_, df_ref = None):
         # year
         df_new['year'] = df_new.year.astype(int)
         # only include model years up to until last year
-        df_new = df_new[df_new.year.between(2000, datetime.today().year)]
+        df_new = df_new[df_new.year.between(1990, datetime.today().year)]
         # convert to year diff from current year to emphasize age
         df_new.loc[:, 'model_age'] = df_new.apply(lambda x: datetime.today().year - x['year'], axis=1)
         print ('PASSED: model_age')
@@ -176,7 +176,7 @@ def feature_engineering(df_, df_ref = None):
     
     try:
         # price
-        df_new = df_new[df_new.price.between(50000, 2000000)]
+        df_new = df_new[df_new.price.between(100000, 2500000)]
         
         # price_q = df_new.groupby('year')['price'].describe().loc[:, ['25%', '50%', '75%']]
         # price_q.loc[:, 'IQR'] = (price_q.loc[:, '75%'] - price_q.loc[:, '25%'])
@@ -507,6 +507,16 @@ def approx_mileage(mileage, make, transmission, df) -> float:
     return est_mileage
 
 @st.cache_data
+def get_body_type(df, 
+                  make : str, 
+                  model : str) -> [str, np.NaN]:
+    sim = df[(df.make == make) & (df.model == model)]
+    try:
+        return sim['body_type'].mode().iloc[0]
+    except:
+        return np.NaN
+
+@st.cache_data
 def import_appraisal_requests(df_data):
     '''
     Import and clean/fill-in missing data from appraisal request data
@@ -613,12 +623,30 @@ def request_select(df_data : pd.DataFrame):
     
     # table settings
     df_display = df_app.sort_values('date', ascending = False)
+    df_display.loc[:, 'date'] = df_display.date.dt.strftime('%Y/%m/%d')
     gb = GridOptionsBuilder.from_dataframe(df_display)
     gb.configure_selection('single', use_checkbox=True, groupSelectsChildren="Group checkbox select children") #Enable multi-row selection
-    gb.configure_column('id', 
-                        headerCheckboxSelection = True,
-                        width = 100)
+    gb.configure_default_column(width = 100)
+    gb.configure_column('date', 
+                        headerCheckboxSelection = True)
+    
+    try:
+        custom_col_size = ['date',
+                           'model', 
+                           'market_value',
+                           'market_value_min',
+                           'market_value_max',
+                           'market_value_std']
+        gb.configure_columns(column_names = custom_col_size,
+                             width = [150]*len(custom_col_size))
+    except:
+        pass
+    
     gridOptions = gb.build()
+    
+    df_display.style.format(precision = 2,
+                            thousands = ',',
+                            decimal = '.')
     
     # selection settings
     data_selection = AgGrid(
@@ -643,6 +671,45 @@ def request_select(df_data : pd.DataFrame):
         df_list = None
         
     return df_list
+
+@st.cache_data
+def import_available_units():
+
+    df_cmx = pd.read_csv('http://app.redash.licagroup.ph/api/queries/8/results.csv?api_key=XVt8wdEtZ7Vy3A6R8L6JgoNoXNiGTxB9MMpVNhGA',
+                         parse_dates = ['PO Date'])
+    
+    df_cmx.columns = ['_'.join(c.split(' ')).lower() for c in df_cmx.columns]
+    
+    # df_cmx.loc[:, 'make'] = df_cmx.make.str.upper()
+    # df_cmx.loc[:, 'model'] = df_cmx.model.str.upper()
+    # df_cmx.loc[:, 'transmission'] = df_cmx.transmission.str.upper()
+    # df_cmx.loc[:, 'fuel_type'] = df_cmx.fuel_type.str.upper()
+    try:
+        makes_list = config_lica.carmax_makes
+        models_list = config_lica.carmax_models
+    except:
+        config_lica.main('CARMAX', 'CLEAN')
+        makes_list = config_lica.carmax_makes
+        models_list = config_lica.carmax_models
+    
+    df_cmx.loc[:, 'make'] = df_cmx.apply(lambda x: config_lica.clean_make(x['make'], makes_list), axis=1)
+    df_cmx.loc[:, 'model'] = df_cmx.apply(lambda x: config_lica.clean_model(x['model'], 
+                                                                          makes_list, models_list), axis=1)
+    df_cmx.loc[:, 'year'] = df_cmx.apply(lambda x: config_lica.clean_year(x['year']), axis=1)
+    df_cmx.loc[:, 'fuel_type'] = df_cmx.apply(lambda x: config_lica.clean_fuel_type(x['fuel_type']), axis=1)
+    df_cmx.loc[:, 'transmission'] = df_cmx.apply(lambda x: config_lica.clean_transmission(x['transmission']), axis=1)
+    df_cmx.loc[:, 'body_type'] = df_cmx.apply(lambda x: get_body_type(df,
+                                                                      x['make'], 
+                                                                      x['model']), axis=1)
+    
+    df_cmx.loc[:, 'plate_no'] = df_cmx.plate_no.apply(lambda x: x.upper().strip() if pd.notna(x) else np.NaN)
+    df_cmx.reset_index(inplace = True)
+    df_cmx = df_cmx.rename(columns = {'index' : 'id',
+                                      'po_date': 'date'})
+    df_cmx.loc[:, 'asking_price'] = df_cmx.apply(lambda x: x['sale_price'] if pd.notna(
+        x['sale_price']) else x['selling_price'], axis=1)
+
+    return df_cmx
 
 @st.cache_data
 def find_similar_cars(request_info, df):
@@ -689,7 +756,7 @@ def find_similar_cars(request_info, df):
     
     return similar_cars
 
-
+## TODO: troubleshoot load tables from BQ
 @st.cache_data
 def import_bookings():
     '''
@@ -733,6 +800,28 @@ def import_bookings():
         ## cleanup column names if needed
         df_bookings.columns = ['_'.join(c.split(' ')).lower() for c in df_bookings.columns]
         
+        df_bookings = df_bookings.rename(columns = {'age_to_booking_date' : 'days_to_booking_date',
+                                      'age_to_booking_date_(h)' : 'hours_to_booking_date'})
+        
+        def correct_hours(d):
+            d = d.split(',')[-1].strip().split(':')
+            h, m = float(d[0]), float(d[1])
+            m = m/60.0
+            return round(h + m, 1)
+        
+        df_bookings.loc[:, 'hours_to_booking_date'] = df_bookings['days_to_booking_date'].apply(correct_hours)
+        
+        def correct_days(d):
+            d = d.split('day')[0].strip()
+            
+            try:
+                return int(d)
+            except:
+                return 0
+        
+        df_bookings.loc[:, 'days_to_booking_date'] = df_bookings.days_to_booking_date.apply(correct_days)
+        
+
         ## cleanup index
         df_bookings = df_bookings.reset_index(drop = True)
         
@@ -869,10 +958,10 @@ def calc_demand_score(request_info,
     
     denom = sum([len(l) if len(l) != 0 else 0 for l in [listings, appraisals, tradeins]])
     
-    if (denom != 0) or pd.notna(denom):
+    try:
         bookings_listings_score = 1 - np.exp(-len(bookings_filtered_recent)/denom)
     
-    else:
+    except:
         bookings_listings_score = 1 - np.exp(-len(bookings_filtered_recent))
     
     st.write(f'Bookings/Listings Score: {int(round(bookings_listings_score, 2)*100)}')
@@ -925,14 +1014,31 @@ def check_mileage(mileage, df):
     num_cars = len(df[df.mileage.between(mileage_bounds[0], mileage_bounds[1])])
     return num_cars
 
-def get_body_type(df, 
-                  make : str, 
-                  model : str) -> [str, np.NaN]:
-    sim = df[(df.make == make) & (df.model == model)]
-    try:
-        return sim['body_type'].mode().iloc[0]
-    except:
-        return np.NaN
+def get_market_value(row, df):
+    '''
+    Get market value statistics of selected car listing
+    
+    Parameters
+    ----------
+    row : pandas dataframe row
+        From .apply
+    df : pandas dataframe
+        main pandas dataframe containing all carmax competitor info
+    
+    '''
+    similar_cars = find_similar_cars(row.to_frame().T, df)
+    
+    row['market_value'] = round(similar_cars.price.mean())
+    row['market_value_min'] = round(min(similar_cars.price))
+    row['market_value_max'] = round(max(similar_cars.price))
+    row['market_value_std'] = round(similar_cars.price.std(), 2)
+    
+    return row
+
+@st.cache_data
+def convert_df(df):
+     # IMPORTANT: Cache the conversion to prevent computation on every rerun
+     return df.to_csv().encode('utf-8')
 
 if __name__ == '__main__':
     st.title('Carmax Appraisal App')
@@ -998,12 +1104,14 @@ if __name__ == '__main__':
     
     chosen_tab = stx.tab_bar(data = [
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
-        stx.TabBarItemData(id = '2', title = 'Manual', description = '')
+        stx.TabBarItemData(id = '2', title = 'CMX Listings Market Survey', description = ''),
+        stx.TabBarItemData(id = '3', title = 'Manual', description = ''),
         ], default = '2')
     
     placeholder = st.container()
     placeholder2 = st.container()
     
+    # Appraisal requests
     if chosen_tab == '1':
         with placeholder:
             appraisal_container = st.empty()
@@ -1029,11 +1137,61 @@ if __name__ == '__main__':
             
             appraisal_container.empty()
             
-            st.write('Click on an entry in the table to display appraisal request data.')
+            st.caption('Click on an entry in the table to display appraisal request data.')
             
-            df_request = request_select(df2[show_cols + ['predicted_value']])
+            table = df2[show_cols + ['predicted_value']]
+            
+            df_request = request_select(table)
+            
+            st.download_button(label = 'Export to CSV',
+                                data = convert_df(table),
+                                file_name = 'cmx_appraisal_requests.csv',
+                                key = 'appraisal_dl')
     
+    # CMX Listings Market Survey
     elif chosen_tab == '2':
+        with placeholder:
+            cmx_container = st.empty()
+            ## Import carmax appraisal requests
+            cmx_container.info('Importing CMX listings data')
+            df1 = import_available_units()
+            cmx_container.info('Feature engineering CMX listings data')
+            df2 = feature_engineering(df1, df).sort_values('id', ascending = False)
+            
+            # market_value, mv_min, mv_max, mv_std
+            #df2.loc[:,'market_value'] = df2.apply(lambda x: np.round(get_market_value(x, df)), axis=1)
+            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+            df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
+            ## prepare test data
+            cmx_container.info('Preparing CMX listings test data')
+            df_test = test_prep(df2[feat_cols[1:]], 
+                                       _enc = train_test_dict['enc'])
+            cmx_container.info('Predicting values for CMX listings')
+            df_pred = models['XGB']['model'].predict(df_test)
+            df2.loc[:, 'predicted_value'] = df_pred.round()
+        
+            ## Output predicted appraised value for each entry (with shap breakdown)
+            show_cols = ['date', 'status', 'make', 'model', 'year', 
+                         'transmission', 'fuel_type', 'mileage', 'body_type', 
+                         'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 'market_value_min', 
+                         'market_value_max', 'market_value_std', 'projected_gp', 
+                         'saleability', 'url']
+
+            cmx_container.empty()
+            
+            table = df2[show_cols]
+            
+            st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
+            
+            ## TODO: add min, max, std of market value
+            df_request = request_select(table)
+            
+            st.download_button(label = 'Export to CSV',
+                                data = convert_df(table),
+                                file_name = 'cmx_listings.csv',
+                                key = 'listings_dl')
+        
+    elif chosen_tab == '3':
         with placeholder:
             with st.form('Car Feature Form 1'):
                 makes_list = config_lica.carmax_makes.name.str.upper().tolist()
@@ -1216,24 +1374,67 @@ if __name__ == '__main__':
             
             with st.expander('**Information**', expanded = True):
                 market_value = round(similar_listings['price'].mean(), 2)
-                st.write(f'Market value: {market_value}')
+                st.info(f'Market value: {market_value}')
                 predicted_value = round(df_request['predicted_value'].values[0], 2)
-                st.write(f"Predicted Appraisal value: {predicted_value}")
-                st.write(f"Asking Price: {round(df_request['asking_price'].values[0],2)}")
+                #st.write(f"Predicted Appraisal value: {predicted_value}")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric('Predicted value',
+                              value = np.round(predicted_value, 2),
+                              delta = round(predicted_value - market_value, 2),
+                              help = 'vs market value')
+                
+                with col2:
+                    if 'po_value' in df_request.columns:
+                        #st.write(f"Selling Price: {round(df_request['asking_price'].values[0],2)}")
+                        selling_price = round(df_request['asking_price'].values[0],2)
+                        st.metric('Selling Price',
+                                  value = selling_price,
+                                  delta = round(selling_price - market_value, 2),
+                                  delta_color = 'inverse',
+                                  help = 'vs market value'
+                                  )
+                    
+                    else:
+                        asking_price = df_request.asking_price.value[0]
+                        st.metric('Asking Price',
+                                  value = asking_price,
+                                  delta = round(asking_price - predicted_value, 2),
+                                  delta_color = 'normal',
+                                  help = 'vs appraised value'
+                                  )
+                
+                if 'po_value' in df_request.columns:
+                    base = 'PO value'
+                    base_value = df_request['po_value'].values[0]
+                    
+                else:
+                    base = 'Asking price'
+                    base_value = df_request['asking_price'].values[0]
+                
+                st.info(f"{base}: {round(base_value, 2)}")
+                st.metric('Proj. GP',
+                          value = round(market_value - base_value, 2),
+                          help = f'market value - {base}')
+                
+                
                 ## gp
                 # plot of selling price
-                asking_price = df_request.asking_price.iloc[0]
-                if asking_price is not None:
-                    #base = min(predicted_value, asking_price)
-                    base = asking_price
-                else:
-                    base = predicted_value
-                    
-                profit_margin = market_value - base
-                    
-                projected_gp = profit_margin/base
                 
-                st.write('Projected GP%: {:.1f}%'.format(projected_gp*100))
+                # if asking_price is not None:
+                #     #base = min(predicted_value, asking_price)
+                #     if 'po_value' in df_request.columns:
+                #         base = df_request['po_value'].values[0]
+                #     else:
+                #         base = asking_price
+                # else:
+                #     base = predicted_value
+                    
+                # profit_margin = market_value - base
+                    
+                # projected_gp = profit_margin/base
+                
+                # st.write('Projected GP%: {:.1f}%'.format(projected_gp*100))
                 
                 ## DEMAND
                 # bar plot of car listings
@@ -1255,7 +1456,7 @@ if __name__ == '__main__':
                 else:
                     avg_time_between_listings = np.NaN
                     
-                st.write('Average days between listings of similar cars: {}'.format(avg_time_between_listings))
+                #st.write('Average days between listings of similar cars: {}'.format(avg_time_between_listings))
                 
                 
             with st.expander('**Scores**', expanded = True):
@@ -1264,7 +1465,7 @@ if __name__ == '__main__':
                                          predicted_value,
                                          df_request.asking_price.iloc[0])
                 
-                st.write(f'**GP Score**: {int(gp_score*100)}')
+                st.info(f'**GP Score**: {int(gp_score*100)}')
                 
                 demand_score = calc_demand_score(request_info,
                                                  df_bookings,
@@ -1272,11 +1473,11 @@ if __name__ == '__main__':
                                                  appraisals_recent,
                                                  tradeins_recent)
                 
-                st.write(f'**Demand Score**: {int(demand_score*100)}')
+                st.info(f'**Demand Score**: {int(demand_score*100)}')
                 
                 overall_score = gp_score * 0.8 + demand_score * 0.2
                 
-                st.write(f'**Overall Score**: {int(overall_score*100)}')
+                st.info(f'**Overall Score**: {int(overall_score*100)}')
                 
                 ## TODO : convert to st.metric
                 
