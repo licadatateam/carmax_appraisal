@@ -205,8 +205,8 @@ def feature_engineering(df_, df_ref = None):
         mileage_q.loc[:, 'IQR'] = mileage_q.loc[:, '75%'] - mileage_q.loc[:, '25%']
         mileage_q.loc[:, 'low_limit'] = mileage_q.apply(lambda x: max(0, x['25%'] - 1.5*x['IQR']), axis=1)
         mileage_q.loc[:, 'upp_limit'] = mileage_q.apply(lambda x: min(250000, x['75%'] + 1.5*x['IQR']), axis=1)
-        df_new = df_new[df_new.apply(lambda x: mileage_q.loc[x['year'], 'low_limit'] <= x['mileage'] \
-                                     <= mileage_q.loc[x['year'], 'upp_limit'], axis=1)]
+        # df_new = df_new[df_new.apply(lambda x: mileage_q.loc[x['year'], 'low_limit'] <= x['mileage'] \
+        #                              <= mileage_q.loc[x['year'], 'upp_limit'], axis=1)]
         
         def mileage_Z_score(mileage : float, 
                             year : [int, float], 
@@ -387,9 +387,9 @@ def xgb_model(X_train : pd.DataFrame,
     start_time = time.time()
     if grid_search:
         # XGBRegressor
-        param_grid = {'n_estimators' : [450, 500, 550],
-                      'max_depth' : [3, 6, 9],
-                      'learning_rate': [0.12, 0.15, 0.18]}
+        param_grid = {'n_estimators' : [650, 700, 750],
+                      'max_depth' : [6],
+                      'learning_rate': [0.16]}
         model_xgbreg = XGBRegressor(tree_method = 'hist',
                                     objective = 'reg:squarederror',
                                     random_state = random_state)
@@ -514,7 +514,7 @@ def get_body_type(df,
     try:
         return sim['body_type'].mode().iloc[0]
     except:
-        return np.NaN
+        return 'SEDAN'
 
 @st.cache_data
 def import_appraisal_requests(df_data):
@@ -563,7 +563,7 @@ def import_appraisal_requests(df_data):
             try:
                 return sim['body_type'].mode().iloc[0]
             except:
-                return np.NaN
+                return 'SEDAN'
         
         df_temp.loc[:, 'body_type'] = df_temp.apply(lambda x: get_body_type(x['make'], x['model']), axis=1)
         #df_temp = df_temp[df_temp.body_type.notna()]
@@ -1025,10 +1025,21 @@ def get_market_value(row, df):
     '''
     similar_cars = find_similar_cars(row.to_frame().T, df)
     
-    row['market_value'] = round(similar_cars.price.mean())
-    row['market_value_min'] = round(min(similar_cars.price))
-    row['market_value_max'] = round(max(similar_cars.price))
-    row['market_value_std'] = round(similar_cars.price.std(), 2)
+    if len(similar_cars) >= 2:
+        row['market_value'] = round(similar_cars.price.mean())
+        row['market_value_min'] = round(min(similar_cars.price))
+        row['market_value_max'] = round(max(similar_cars.price))
+        row['market_value_std'] = round(similar_cars.price.std(), 2)
+    else:
+        try:
+            market_value = round(similar_cars.price.values[0])    
+        except:
+            market_value = np.NaN
+            
+        row['market_value'] = market_value
+        row['market_value_min'] = market_value
+        row['market_value_max'] = market_value
+        row['market_value_std'] = 0
     
     return row
 
