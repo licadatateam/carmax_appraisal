@@ -130,9 +130,6 @@ def import_data() -> [pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # drop rows with incomplete data in required cols
     df.dropna(subset = cols, inplace = True)
     
-    ## TODO : validate data
-    ## TODO : Write cleaned data to BQ
-    
     print ('End task: {}'.format(datetime.now().time().strftime('%H:%M:%S')))
     print('Task duration: {0:1.2f} s'.format(time.time() - start_time))
     return df, comp_data, backend_data
@@ -145,7 +142,6 @@ def feature_engineering(df_, df_ref = None):
     print ('Start task: {}'.format(datetime.now().time().strftime('%H:%M:%S')))
     start_time = time.time()
     
-    ## TODO : validate input data for available feature cols
     try:
         col_check = [col  for col in start_cols if col not in df_.columns]
         if len(col_check):
@@ -630,6 +626,9 @@ def request_select(df_data : pd.DataFrame):
     gb.configure_column('date', 
                         headerCheckboxSelection = True)
     gb.configure_column('id', hide = True)
+    if 'url' in df_app.columns:
+        gb.configure_column('url', width = 450,
+                            singleClickEdit = True)
     try:
         custom_col_size = ['date',
                            'model', 
@@ -698,13 +697,15 @@ def import_available_units():
     df_cmx.loc[:, 'body_type'] = df_cmx.apply(lambda x: get_body_type(df,
                                                                       x['make'], 
                                                                       x['model']), axis=1)
-    
+    df_cmx.loc[:, 'is_sale'] = df_cmx.is_sale.apply(lambda x: True if x else False)
     df_cmx.loc[:, 'plate_no'] = df_cmx.plate_no.apply(lambda x: x.upper().strip() if pd.notna(x) else np.NaN)
     df_cmx.reset_index(inplace = True)
     df_cmx = df_cmx.rename(columns = {'index' : 'id',
                                       'po_date': 'date'})
-    df_cmx.loc[:, 'asking_price'] = df_cmx.apply(lambda x: x['sale_price'] if pd.notna(
-        x['sale_price']) else x['selling_price'], axis=1)
+    df_cmx.loc[:, 'asking_price'] = df_cmx.apply(lambda x: x['sale_price'] if (pd.notna(
+        x['sale_price']) and (x['is_sale'] == True)) else np.nanmin([x['sale_price'], x['selling_price']]) - 10000, axis=1)
+    # website hardcode
+    # df_cmx.loc[:, 'asking_price'] = df_cmx - 10000
 
     return df_cmx
 
@@ -729,8 +730,9 @@ def find_similar_cars(request_info, df):
                           (df_.year.between(int(request_info['year'].values[0]) - 1,
                                            int(request_info['year'].values[0]) + 1)) &
                           (df_.mileage.between(request_info['mileage'].values[0] - 25000,
-                                              request_info['mileage'].values[0] + 25000))].sort_values('date_listed', 
-                                                                                                      ascending = False)
+                                              request_info['mileage'].values[0] + 25000)) &
+                          ((datetime.today().year - df_['date_listed'].dt.year) <= 2)].sort_values('date_listed', 
+                                                                                        ascending = False)
         # remove outliers in terms of price
         try:
             q25 = np.quantile(similar_cars.price, 0.25)
@@ -753,7 +755,7 @@ def find_similar_cars(request_info, df):
     
     return similar_cars
 
-## TODO: troubleshoot load tables from BQ
+
 @st.cache_data
 def import_bookings():
     '''
@@ -943,7 +945,7 @@ def calc_demand_score(request_info,
     appraisals : DataFrame
     tradeins : DataFrame
     '''
-    ## TODO : permanently fix year dtyping to make consistent
+
     bookings.loc[:, 'year'] = bookings.loc[:, 'year'].apply(lambda x: int(x) if pd.notna(x) else np.NaN)
     bookings_filtered = bookings[(bookings.make == request_info.make.iloc[0]) & \
                                  (bookings.model == request_info.model.iloc[0]) & \
@@ -975,7 +977,7 @@ def calc_demand_score(request_info,
         views_score = 0
     
     st.write(f'Views Score : {int(round(views_score, 2)*100)}')
-    ## TODO: Incorporate trade-ins, consignments
+
     try:
         # 0-1 ratio
         interest_over_time = get_gtrends_score(request_info)
@@ -1039,7 +1041,7 @@ def get_market_value(row, df):
         row['market_value'] = market_value
         row['market_value_min'] = market_value
         row['market_value_max'] = market_value
-        row['market_value_std'] = 0
+        row['market_value_std'] = 0 if pd.notna(market_value) else np.NaN
     
     return row
 
@@ -1081,33 +1083,48 @@ if __name__ == '__main__':
     comp_table_id = 'absolute-gantry-363408.carmax.competitors_compiled'
     model_mod_date = config_lica.check_model_date(filename)
     comp_mod_date = config_lica.check_table_date(comp_table_id)
-    
+    model_import_error = False
+    model_retrain = False
+    # updated competitor data but not updated model, retrain model
+    #if (comp_mod_date.day <= 7) and (model_mod_date.day > 7):
     try:
-        models = config_lica.get_from_gcloud(filename)
-        setup_container.info(f'XGB model ({filename}) downloaded from GCS in {bucket_name}')
-        evals = eval_models(models, 
-                            train_test_dict['X_test'], 
-                            train_test_dict['y_test'])
+        if (model_mod_date.day - comp_mod_date.day) >= 0:
+            models = config_lica.get_from_gcloud(filename)
+            setup_container.info(f'SUCCESS: XGB model ({filename}) from {bucket_name} GCS bucket.')
+            
+        else:
+            model_retrain = True
+            setup_container.info('Competitor data updated. XGB model need to be retrained.')
+            models = train_models(['XGB'], 
+                                  train_test_dict['X_train'], 
+                                  train_test_dict['y_train'], 
+                                  )
+
     except:
+        model_import_error = True
+        model_retrain = True
+        setup_container.info(f'FAILED: Import XGB model {filename} from {bucket_name} GCS bucket.')
+        
         # only execute if need to train model
-        setup_container.info('Training XGB model')
+        setup_container.info('Training XGB model..')
         models = train_models(['XGB'], 
                               train_test_dict['X_train'], 
                               train_test_dict['y_train'], 
                               )
         try:
-            
+
             config_lica.upload_to_gcloud(models, filename,
                                           bucket_name = bucket_name)
-            setup_container.info(f'XGB model ({filename}) uploaded to GCS in {bucket_name}')
+            setup_container.info(f'SUCCESS: Upload XGB model {filename} to {bucket_name} GCS bucket.')
         except:
+            setup_container.info(f'FAILED: Upload XGB model {filename} to {bucket_name} GCS bucket.')
             pass
-        
+    
+    finally:
         evals = eval_models(models, 
                             train_test_dict['X_test'], 
                             train_test_dict['y_test'])
-    
-    setup_container.empty()
+        setup_container.empty()
     
     
     chosen_tab = stx.tab_bar(data = [
@@ -1128,6 +1145,8 @@ if __name__ == '__main__':
             df1 = import_appraisal_requests(df_data)
             appraisal_container.info('Feature engineering appraisal request data')
             df2 = feature_engineering(df1, df).sort_values('id', ascending = False)
+            
+            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
             ## prepare test data
             appraisal_container.info('Preparing Appraisal Request test data')
             df_test = test_prep(df2[feat_cols[1:]], 
@@ -1137,18 +1156,20 @@ if __name__ == '__main__':
             df2.loc[:, 'predicted_value'] = df_pred
         
             ## Output predicted appraised value for each entry (with shap breakdown)
-            show_cols = ['id', 'date', 'status', 'intention', 'make', 'model', 
+            show_cols = ['date', 'id', 'status', 'intention', 'make', 'model', 
                          'year', 'transmission', 'fuel_type', 'mileage', 
                          'mileage_bracket', 'body_type', 'issues', 'with_inspection', 
-                         'initial_appraised_value', 'asking_price',
-                         'min_value', 'max_value']
+                         'asking_price', 'predicted_value', 'market_value', 
+                         'market_value_min', 'market_value_max', 'market_value_std' 
+                         ]
             
             appraisal_container.empty()
             
-            table = df2[show_cols + ['predicted_value']]
+            table = df2[show_cols]
             
             st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
             
+            ## TODO: Calculate market value, gp_score, demand_score in tables
             df_request = request_select(table)
             
             st.download_button(label = 'Export to CSV',
@@ -1191,7 +1212,7 @@ if __name__ == '__main__':
             
             st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
             
-            ## TODO: add min, max, std of market value
+            ## TODO: Calculate market value, gp_score, demand_score in tables
             df_request = request_select(table)
             
             st.download_button(label = 'Export to CSV',
@@ -1380,6 +1401,7 @@ if __name__ == '__main__':
             with st.expander('**Similar Listings**', expanded = False):
                 st.dataframe(similar_listings)
             
+            # only applies to Manual mode
             with st.expander('**Information**', expanded = True):
                 market_value = round(similar_listings['price'].mean(), 2)
                 st.info(f'Market value: {market_value}')
@@ -1487,7 +1509,6 @@ if __name__ == '__main__':
                 
                 st.info(f'**Overall Score**: {int(overall_score*100)}')
                 
-                ## TODO : convert to st.metric
                 
             
         else:
