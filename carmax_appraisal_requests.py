@@ -671,7 +671,7 @@ def request_select(df_data : pd.DataFrame):
 @st.cache_data
 def import_available_units():
 
-    df_cmx = pd.read_csv('http://app.redash.licagroup.ph/api/queries/8/results.csv?api_key=XVt8wdEtZ7Vy3A6R8L6JgoNoXNiGTxB9MMpVNhGA',
+    df_cmx = pd.read_csv('http://app.redash.licagroup.ph/api/queries/8/results.csv?api_key=AHzu1kwBcFORZzW2kYe6YVbK5m5juVrPp6oTdueC',
                          parse_dates = ['PO Date'])
     
     df_cmx.columns = ['_'.join(c.split(' ')).lower() for c in df_cmx.columns]
@@ -898,8 +898,8 @@ def calc_gp_score(market_value,
     # maximum profit/score: appraised_value << market_value, asking_price << market_value, asking_price < appraised_value
     # minimum profit/score: asking_price >> market_value
     '''
-    if asking_price is None:
-        asking_price = 0.85 * market_value
+    if (asking_price is None) or pd.isnull(asking_price):
+        asking_price = appraised_value
     else:
         pass
     
@@ -963,7 +963,7 @@ def calc_demand_score(request_info,
     except:
         bookings_listings_score = 1 - np.exp(-len(bookings_filtered_recent))
     
-    st.write(f'Bookings/Listings Score: {int(round(bookings_listings_score, 2)*100)}')
+    #st.write(f'Bookings/Listings Score: {int(round(bookings_listings_score, 2)*100)}')
     
     # get views of similar listings within last 6 months over all similar listings/bookings
     if len(bookings_filtered_recent):
@@ -976,7 +976,7 @@ def calc_demand_score(request_info,
         
         views_score = 0
     
-    st.write(f'Views Score : {int(round(views_score, 2)*100)}')
+    #st.write(f'Views Score : {int(round(views_score, 2)*100)}')
 
     try:
         # 0-1 ratio
@@ -986,7 +986,7 @@ def calc_demand_score(request_info,
     except:
         gtrends_score = 0
     
-    st.write(f'Google Trends Score : {int(round(gtrends_score, 2)*100)}')
+    #st.write(f'Google Trends Score : {int(round(gtrends_score, 2)*100)}')
     
     demand_score = bookings_listings_score * 0.45 + \
         gtrends_score * 0.45 + views_score * 0.1
@@ -1044,6 +1044,72 @@ def get_market_value(row, df):
         row['market_value_std'] = 0 if pd.notna(market_value) else np.NaN
     
     return row
+
+def calc_scores(row, df, df2):
+    '''
+    
+    Parameters:
+    -----------
+    - request_info: pandas dataframe single row
+    - df: pandas dataframe
+        all data
+    - df2: pandas dataframe
+        specific table (cmx listings, appraisals)
+    '''
+    try:                                                                                    
+        request_info = row.to_frame().T
+    except:
+        request_info = row
+    
+    similar_listings = find_similar_cars(request_info, df)
+    
+    ## Find similar appraisal requests aside from selected
+    similar_appraisals = df2[(df2.make == request_info.make.iloc[0]) &\
+                     (df2.model == request_info.model.iloc[0]) &\
+                     (df2.year.between(int(request_info.year.iloc[0]) - 1,
+                                       int(request_info.year.iloc[0]) + 1))]
+    
+    similar_tradeins = df_tc[(df_tc.make == request_info.make.iloc[0]) &
+                             (df_tc.model == request_info.model.iloc[0]) &
+                             (df_tc.year.between(int(request_info.year.iloc[0]) - 1,
+                                                 int(request_info.year.iloc[0]) + 1))]
+    
+    ## DEMAND
+    try:
+        listings_recent = similar_listings[similar_listings.date_listed.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+    except:
+        listings_recent = pd.DataFrame()
+    try:
+        appraisals_recent = similar_appraisals[similar_appraisals.created_at.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+    except:
+        appraisals_recent = pd.DataFrame()
+    try:
+        tradeins_recent = similar_tradeins[similar_tradeins.application_date.apply(lambda x: True if x.date() >= (datetime.today().date() - timedelta(days = 180)) else False)]
+    except:
+        tradeins_recent = pd.DataFrame()
+    
+    predicted_value = request_info['predicted_value'].values[0]
+    market_value = request_info['market_value'].values[0]
+    
+    if pd.notna(market_value):
+        pass
+    else:
+        market_value = predicted_value
+    
+    request_info['gp_score'] = int(calc_gp_score(market_value,
+                                             predicted_value,
+                                             request_info['asking_price'].values[0]) * 100)
+    
+    request_info['demand_score'] = int(calc_demand_score(request_info,
+                                     df_bookings,
+                                     listings_recent,
+                                     appraisals_recent,
+                                     tradeins_recent) * 100)
+    
+    request_info['overall_score'] = int(request_info['gp_score'] * 0.8 + request_info['demand_score'] * 0.2)
+    
+    # convert back to series
+    return request_info.iloc[0]
 
 @st.cache_data
 def convert_df(df):
@@ -1131,7 +1197,7 @@ if __name__ == '__main__':
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
         stx.TabBarItemData(id = '2', title = 'CMX Listings Market Survey', description = ''),
         stx.TabBarItemData(id = '3', title = 'Manual', description = ''),
-        ], default = '2')
+        ], default = '1')
     
     placeholder = st.container()
     placeholder2 = st.container()
@@ -1146,7 +1212,6 @@ if __name__ == '__main__':
             appraisal_container.info('Feature engineering appraisal request data')
             df2 = feature_engineering(df1, df).sort_values('id', ascending = False)
             
-            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
             ## prepare test data
             appraisal_container.info('Preparing Appraisal Request test data')
             df_test = test_prep(df2[feat_cols[1:]], 
@@ -1154,13 +1219,16 @@ if __name__ == '__main__':
             appraisal_container.info('Predicting values for appraisal requests')
             df_pred = models['XGB']['model'].predict(df_test)
             df2.loc[:, 'predicted_value'] = df_pred
+            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+            df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
             show_cols = ['date', 'id', 'status', 'intention', 'make', 'model', 
                          'year', 'transmission', 'fuel_type', 'mileage', 
                          'mileage_bracket', 'body_type', 'issues', 'with_inspection', 
                          'asking_price', 'predicted_value', 'market_value', 
-                         'market_value_min', 'market_value_max', 'market_value_std' 
+                         'market_value_min', 'market_value_max', 'market_value_std',
+                         'gp_score', 'demand_score', 'overall_score'
                          ]
             
             appraisal_container.empty()
@@ -1187,10 +1255,6 @@ if __name__ == '__main__':
             cmx_container.info('Feature engineering CMX listings data')
             df2 = feature_engineering(df1, df).sort_values('id', ascending = False)
             
-            # market_value, mv_min, mv_max, mv_std
-            #df2.loc[:,'market_value'] = df2.apply(lambda x: np.round(get_market_value(x, df)), axis=1)
-            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
-            df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
             ## prepare test data
             cmx_container.info('Preparing CMX listings test data')
             df_test = test_prep(df2[feat_cols[1:]], 
@@ -1198,13 +1262,17 @@ if __name__ == '__main__':
             cmx_container.info('Predicting values for CMX listings')
             df_pred = models['XGB']['model'].predict(df_test)
             df2.loc[:, 'predicted_value'] = df_pred.round()
+            # market_value, mv_min, mv_max, mv_std
+            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+            df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
+            df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
             show_cols = ['date', 'id', 'status', 'vehicle_id', 'make', 'model', 'year', 
                          'transmission', 'fuel_type', 'mileage', 'body_type', 
                          'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 
                          'market_value_min', 'market_value_max', 'market_value_std', 'asking_price', 
-                         'projected_gp', 'saleability', 'url']
+                         'projected_gp', 'gp_score', 'demand_score', 'overall_score', 'saleability', 'url']
 
             cmx_container.empty()
             
@@ -1305,7 +1373,7 @@ if __name__ == '__main__':
                                                min_value = 0,
                                                max_value = 5000000,
                                                step = 500,
-                                               value = 300000,
+                                               value = 450000,
                                                help = 'price customer aims to sell to Carmax')
                 
                 specs_dict = {'id' : 1,
@@ -1400,71 +1468,71 @@ if __name__ == '__main__':
         if len(similar_listings):
             with st.expander('**Similar Listings**', expanded = False):
                 st.dataframe(similar_listings)
-            
+        else:
+            st.warning('No similar cars in the market. This car transaction is risky due to no data on potential profit and demand.')
+        
+        
+        if chosen_tab == '3':
             # only applies to Manual mode
             with st.expander('**Information**', expanded = True):
-                market_value = round(similar_listings['price'].mean(), 2)
-                st.info(f'Market value: {market_value}')
-                predicted_value = round(df_request['predicted_value'].values[0], 2)
-                #st.write(f"Predicted Appraisal value: {predicted_value}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric('Predicted value',
-                              value = np.round(predicted_value, 2),
+                ## market value
+                if len(similar_listings):
+                    market_value = round(similar_listings['price'].mean(), 2)
+                    
+                    mv1, mv2, mv3, mv4 = st.columns(4)
+                    
+                    with mv1:
+                        st.metric('Market Value',
+                                  value = round(similar_listings['price'].mean(), 2),
+                                  help = 'average from prices in similar listings tab')
+                    with mv2:
+                        st.metric('Market Value (Min)',
+                                  value = min(similar_listings['price']),
+                                  help = 'minimum from prices in similar listings tab')
+                    with mv3:
+                        st.metric('Market Value (max)',
+                                  value = max(similar_listings['price']),
+                                  help = 'maximum from prices in similar listings tab')
+                    with mv4:
+                        st.metric('Market Value (std)',
+                                  value = round(similar_listings['price'].std()),
+                                  help = 'standard deviation of prices in similar listings tab')
+                
+                else:
+                    # same as predicted value
+                    market_value = round(df_request['predicted_value'].values[0], 2)
+                
+                ## predicted appraised value
+                predicted_value = round(float(df_request['predicted_value'].values[0]), 2)
+
+                if pd.notna(market_value):
+                    st.metric('Appraised value',
+                              value = predicted_value,
                               delta = round(predicted_value - market_value, 2),
                               help = 'vs market value')
-                
-                with col2:
-                    if 'po_value' in df_request.columns:
-                        #st.write(f"Selling Price: {round(df_request['asking_price'].values[0],2)}")
-                        selling_price = round(df_request['asking_price'].values[0],2)
-                        st.metric('Selling Price',
-                                  value = selling_price,
-                                  delta = round(selling_price - market_value, 2),
-                                  delta_color = 'inverse',
-                                  help = 'vs market value'
-                                  )
-                    
-                    else:
-                        asking_price = df_request.asking_price.value[0]
-                        st.metric('Asking Price',
-                                  value = asking_price,
-                                  delta = round(asking_price - predicted_value, 2),
-                                  delta_color = 'normal',
-                                  help = 'vs appraised value'
-                                  )
-                
-                if 'po_value' in df_request.columns:
-                    base = 'PO value'
-                    base_value = df_request['po_value'].values[0]
-                    
                 else:
-                    base = 'Asking price'
-                    base_value = df_request['asking_price'].values[0]
+                    st.metric('Appraised value',
+                              value = np.round(predicted_value, 2),
+                              help = 'based on ML model predictions')
                 
-                st.info(f"{base}: {round(base_value, 2)}")
-                st.metric('Proj. GP',
-                          value = round(market_value - base_value, 2),
-                          help = f'market value - {base}')
+                ask_col, gp_col = st.columns(2)
                 
+                with ask_col:
+                    asking_price = df_request.asking_price.values[0]
+                    st.metric('Asking Price',
+                              value = asking_price,
+                              delta = round(asking_price - predicted_value, 2),
+                              delta_color = 'normal',
+                              help = 'vs appraised value'
+                              )
                 
-                ## gp
-                # plot of selling price
+                with gp_col:
+                    est_gp = round(0.5*(market_value+predicted_value) - asking_price, 2)
+                    st.metric('Estimated GP',
+                              value = est_gp,
+                              delta = f'{round((est_gp/asking_price)*100, 2)}%',
+                              help = 'compared to average of market value and appraised value')
                 
-                # if asking_price is not None:
-                #     #base = min(predicted_value, asking_price)
-                #     if 'po_value' in df_request.columns:
-                #         base = df_request['po_value'].values[0]
-                #     else:
-                #         base = asking_price
-                # else:
-                #     base = predicted_value
-                    
-                # profit_margin = market_value - base
-                    
-                # projected_gp = profit_margin/base
-                
-                # st.write('Projected GP%: {:.1f}%'.format(projected_gp*100))
                 
                 ## DEMAND
                 # bar plot of car listings
@@ -1494,25 +1562,29 @@ if __name__ == '__main__':
                 gp_score = calc_gp_score(market_value,
                                          predicted_value,
                                          df_request.asking_price.iloc[0])
-                
-                st.info(f'**GP Score**: {int(gp_score*100)}')
+                if int(gp_score*100) >= 50:
+                    st.info(f'**GP Score**: {int(gp_score*100)}')
+                else:
+                    st.warning(f'**GP Score**: {int(gp_score*100)}')
                 
                 demand_score = calc_demand_score(request_info,
                                                  df_bookings,
                                                  listings_recent,
                                                  appraisals_recent,
                                                  tradeins_recent)
-                
-                st.info(f'**Demand Score**: {int(demand_score*100)}')
+                if int(demand_score*100) >= 50:
+                    st.info(f'**Demand Score**: {int(demand_score*100)}')
+                else:
+                    st.warning(f'**Demand Score**: {int(demand_score*100)}')
                 
                 overall_score = gp_score * 0.8 + demand_score * 0.2
-                
-                st.info(f'**Overall Score**: {int(overall_score*100)}')
+                if int(overall_score*100) >= 50:
+                    st.info(f'**Overall Score**: {int(overall_score*100)}')
+                else:
+                    st.warning(f'**Overall Score**: {int(overall_score*100)}')
                 
                 
             
-        else:
-            st.warning('No similar cars in the market. This car transaction is risky due to no data on potential profit and demand.')
         
 
                     
