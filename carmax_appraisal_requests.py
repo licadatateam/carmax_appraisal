@@ -1197,7 +1197,7 @@ if __name__ == '__main__':
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
         stx.TabBarItemData(id = '2', title = 'CMX Listings Market Survey', description = ''),
         stx.TabBarItemData(id = '3', title = 'Manual', description = ''),
-        ], default = '1')
+        ], default = '2')
     
     placeholder = st.container()
     placeholder2 = st.container()
