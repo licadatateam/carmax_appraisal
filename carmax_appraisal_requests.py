@@ -730,8 +730,7 @@ def find_similar_cars(request_info, df):
                           (df_.year.between(int(request_info['year'].values[0]) - 1,
                                            int(request_info['year'].values[0]) + 1)) &
                           (df_.mileage.between(request_info['mileage'].values[0] - 25000,
-                                              request_info['mileage'].values[0] + 25000)) &
-                          ((datetime.today().year - df_['date_listed'].dt.year) <= 2)].sort_values('date_listed', 
+                                              request_info['mileage'].values[0] + 25000))].sort_values('date_listed', 
                                                                                         ascending = False)
         # remove outliers in terms of price
         try:
