@@ -1081,14 +1081,19 @@ def get_market_value(row, df):
         row['market_value_std'] = round(similar_cars.price.std(), 2)
     else:
         try:
-            market_value = round(similar_cars.price.values[0])    
+            market_value = round(similar_cars.price.values[0])
+            if pd.isna(market_value):
+                raise Exception
+            else:
+                pass
         except:
             market_value = row['predicted_value']
-            
-        row['market_value'] = market_value
-        row['market_value_min'] = market_value
-        row['market_value_max'] = market_value
-        row['market_value_std'] = 0
+        
+        finally:
+            row['market_value'] = market_value
+            row['market_value_min'] = market_value
+            row['market_value_max'] = market_value
+            row['market_value_std'] = 0
     
     return row
 
