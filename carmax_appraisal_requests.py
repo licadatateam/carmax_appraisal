@@ -474,6 +474,53 @@ def eval_models(_model_dict : dict,
 
     return pd.DataFrame.from_dict(d).T
 
+@st.cache_resource
+def import_model():
+    
+    
+    filename = 'appraisal_xgb_model.joblib'
+    bucket_name = 'lica-aiml-models'
+    comp_table_id = 'absolute-gantry-363408.carmax.competitors_compiled'
+    model_mod_date = config_lica.check_model_date(filename)
+    comp_mod_date = config_lica.check_table_date(comp_table_id)
+    # updated competitor data but not updated model, retrain model
+    #if (comp_mod_date.day <= 7) and (model_mod_date.day > 7):
+    try:
+        if (model_mod_date.day - comp_mod_date.day) >= 0:
+            models = config_lica.get_from_gcloud(filename)
+            print(f'SUCCESS: XGB model ({filename}) from {bucket_name} GCS bucket.')
+            
+        else:
+            print('Competitor data updated. XGB model need to be retrained.')
+            models = train_models(['XGB'], 
+                                  train_test_dict['X_train'], 
+                                  train_test_dict['y_train'], 
+                                  )
+
+    except:
+        print(f'FAILED: Import XGB model {filename} from {bucket_name} GCS bucket.')
+        
+        # only execute if need to train model
+        print('Training XGB model..')
+        models = train_models(['XGB'], 
+                              train_test_dict['X_train'], 
+                              train_test_dict['y_train'], 
+                              )
+        try:
+
+            config_lica.upload_to_gcloud(models, filename,
+                                          bucket_name = bucket_name)
+            print(f'SUCCESS: Upload XGB model {filename} to {bucket_name} GCS bucket.')
+        except:
+            print(f'FAILED: Upload XGB model {filename} to {bucket_name} GCS bucket.')
+            pass
+    
+    finally:
+        evals = eval_models(models, 
+                            train_test_dict['X_test'], 
+                            train_test_dict['y_test'])
+        return models, evals
+
 @st.cache_data
 def approx_mileage(mileage, make, transmission, df) -> float:
     # extract mileage lower and upper bounds
@@ -702,7 +749,7 @@ def import_available_units():
     df_cmx.reset_index(inplace = True)
     df_cmx = df_cmx.rename(columns = {'index' : 'id',
                                       'po_date': 'date'})
-    df_cmx.loc[:, 'asking_price'] = df_cmx.apply(lambda x: x['sale_price'] if (pd.notna(
+    df_cmx.loc[:, 'sale_price'] = df_cmx.apply(lambda x: x['sale_price'] if (pd.notna(
         x['sale_price']) and (x['is_sale'] == True)) else np.nanmin([x['sale_price'], x['selling_price']]) - 10000, axis=1)
     # website hardcode
     # df_cmx.loc[:, 'asking_price'] = df_cmx - 10000
@@ -1012,6 +1059,7 @@ def check_mileage(mileage, df):
     num_cars = len(df[df.mileage.between(mileage_bounds[0], mileage_bounds[1])])
     return num_cars
 
+@st.cache_data
 def get_market_value(row, df):
     '''
     Get market value statistics of selected car listing
@@ -1035,14 +1083,29 @@ def get_market_value(row, df):
         try:
             market_value = round(similar_cars.price.values[0])    
         except:
-            market_value = np.NaN
+            market_value = row['predicted_value']
             
         row['market_value'] = market_value
         row['market_value_min'] = market_value
         row['market_value_max'] = market_value
-        row['market_value_std'] = 0 if pd.notna(market_value) else np.NaN
+        row['market_value_std'] = 0
     
     return row
+
+@st.cache_data
+def mv_scores_apply(df, df2):
+    
+    df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+    if 'po_value' in df2.columns:
+        df2.loc[:, 'projected_gp'] = df2.apply(
+            lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
+    else:
+        df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(
+            x['market_value'] - x['asking_price']), axis=1)
+        
+    df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
+
+    return df2
 
 def calc_scores(row, df, df2):
     '''
@@ -1142,64 +1205,18 @@ if __name__ == '__main__':
     train_test_dict = train_test_prep(df_data[feat_cols])
     
     setup_container.info('Obtaining trained XGBoost model')
-    filename = 'appraisal_xgb_model.joblib'
-    bucket_name = 'lica-aiml-models'
-    model_file = 'carmax/' + filename
-    comp_table_id = 'absolute-gantry-363408.carmax.competitors_compiled'
-    model_mod_date = config_lica.check_model_date(filename)
-    comp_mod_date = config_lica.check_table_date(comp_table_id)
-    model_import_error = False
-    model_retrain = False
-    # updated competitor data but not updated model, retrain model
-    #if (comp_mod_date.day <= 7) and (model_mod_date.day > 7):
-    try:
-        if (model_mod_date.day - comp_mod_date.day) >= 0:
-            models = config_lica.get_from_gcloud(filename)
-            setup_container.info(f'SUCCESS: XGB model ({filename}) from {bucket_name} GCS bucket.')
-            
-        else:
-            model_retrain = True
-            setup_container.info('Competitor data updated. XGB model need to be retrained.')
-            models = train_models(['XGB'], 
-                                  train_test_dict['X_train'], 
-                                  train_test_dict['y_train'], 
-                                  )
-
-    except:
-        model_import_error = True
-        model_retrain = True
-        setup_container.info(f'FAILED: Import XGB model {filename} from {bucket_name} GCS bucket.')
-        
-        # only execute if need to train model
-        setup_container.info('Training XGB model..')
-        models = train_models(['XGB'], 
-                              train_test_dict['X_train'], 
-                              train_test_dict['y_train'], 
-                              )
-        try:
-
-            config_lica.upload_to_gcloud(models, filename,
-                                          bucket_name = bucket_name)
-            setup_container.info(f'SUCCESS: Upload XGB model {filename} to {bucket_name} GCS bucket.')
-        except:
-            setup_container.info(f'FAILED: Upload XGB model {filename} to {bucket_name} GCS bucket.')
-            pass
-    
-    finally:
-        evals = eval_models(models, 
-                            train_test_dict['X_test'], 
-                            train_test_dict['y_test'])
-        setup_container.empty()
-    
+    models, evals = import_model()
+    setup_container.empty()
     
     chosen_tab = stx.tab_bar(data = [
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
         stx.TabBarItemData(id = '2', title = 'CMX Listings Market Survey', description = ''),
         stx.TabBarItemData(id = '3', title = 'Manual', description = ''),
-        ], default = '2')
+        ], default = '3')
     
     placeholder = st.container()
     placeholder2 = st.container()
+    placeholder3 = st.container()
     
     # Appraisal requests
     if chosen_tab == '1':
@@ -1218,8 +1235,7 @@ if __name__ == '__main__':
             appraisal_container.info('Predicting values for appraisal requests')
             df_pred = models['XGB']['model'].predict(df_test)
             df2.loc[:, 'predicted_value'] = df_pred
-            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
-            df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
+            df2 = mv_scores_apply(df, df2)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
             show_cols = ['date', 'id', 'status', 'intention', 'make', 'model', 
@@ -1262,15 +1278,16 @@ if __name__ == '__main__':
             df_pred = models['XGB']['model'].predict(df_test)
             df2.loc[:, 'predicted_value'] = df_pred.round()
             # market_value, mv_min, mv_max, mv_std
-            df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
-            df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
-            df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
+            # df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+            # df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
+            # df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
+            df2 = mv_scores_apply(df, df2)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
             show_cols = ['date', 'id', 'status', 'vehicle_id', 'make', 'model', 'year', 
                          'transmission', 'fuel_type', 'mileage', 'body_type', 
                          'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 
-                         'market_value_min', 'market_value_max', 'market_value_std', 'asking_price', 
+                         'market_value_min', 'market_value_max', 'market_value_std', 'sale_price', 
                          'projected_gp', 'gp_score', 'demand_score', 'overall_score', 'saleability', 'url']
 
             cmx_container.empty()
@@ -1295,8 +1312,15 @@ if __name__ == '__main__':
                                     options = makes_list,
                                     index = makes_list.index('TOYOTA'))
                 
-                models_list = config_lica.carmax_models.name.str.upper().tolist()
-                models_filter = sorted([m.split(make)[-1].strip() for m in models_list if make in m])
+                submitted1 = st.form_submit_button('Enter')
+                
+        #with placeholder2:
+            models_list = config_lica.carmax_models.name.str.upper().tolist()
+            models_filter = sorted([m.split(make)[-1].strip() for m in models_list if make in m])
+            models_filter = [m for m in models_filter if m != '']
+            
+            with st.form('Car Feature Form 2'):
+                
                 if len(models_filter):
                     model = st.selectbox('Model',
                                         options = models_filter,
@@ -1331,23 +1355,26 @@ if __name__ == '__main__':
                 df_temp = df[(df.make == make) & (df.model == model) & (df.year == int(year)) & (
                     df.transmission == transmission) & (df.fuel_type == fuel_type)]
                 
-                submitted1 = st.form_submit_button('Enter')
-        
-        with placeholder2:
-            with st.form('Car Feature Form 2'):
+                submitted2 = st.form_submit_button('Enter')
+                
+                    
+        #with placeholder3:
+            with st.form('Car Feature Form 3'):
                 ## mileage
                 mileage_list = ['0-10,000', '10,001-20,000', '20,001-30,000', '30,001-40,000', 
                                 '40,001-50,000', '50,001-60,000', '60,001-70,000', '70,001-80,000', 
                                 '80,001-90,000', '90,001-100,000', '100,001+']
                 
-                mileage_opts = [m for m in mileage_list if check_mileage(m, df_temp) > 1]
+                #mileage_opts = [m for m in mileage_list if check_mileage(m, df_temp) > 1]
                 
                 mileage = st.selectbox('Mileage range',
-                                       options = mileage_opts,
+                                       options = mileage_list,
                                        index = 0,
                                        help = 'options change depending on the previous form inputs.')
                 
-                mileage_nums = re.findall('[0-9]+', re.sub(',', '', mileage))
+                
+                mileage_nums = re.findall('[0-9]+', re.sub(',', '', str(mileage)))
+                
                 if len(mileage_nums) == 2:
                     min_mileage = int(mileage_nums[0])
                     max_mileage = int(mileage_nums[1])
@@ -1385,9 +1412,9 @@ if __name__ == '__main__':
                               'mileage' : approx_mileage(mileage, make, transmission, df),
                               'asking_price' : asking_price}
                 
-                submitted2 = st.form_submit_button('Enter')
+                submitted3 = st.form_submit_button('Enter')
                 
-                if submitted2:
+                if submitted3:
                 
                     df1 = pd.DataFrame(list(specs_dict.values()), index = specs_dict.keys()).T
                     
@@ -1406,6 +1433,8 @@ if __name__ == '__main__':
     else:
         df_request = None
         placeholder.empty()
+        #placeholder2.empty()
+        #placeholder3.empty()
     
     ### Give rating for each appraisal request/entry
     if df_request is not None:
@@ -1463,12 +1492,12 @@ if __name__ == '__main__':
                                  (df_tc.model == df_request.model.iloc[0]) &
                                  (df_tc.year.between(int(df_request.year.iloc[0]) - 1,
                                                      int(df_request.year.iloc[0]) + 1))]
-
-        if len(similar_listings):
-            with st.expander('**Similar Listings**', expanded = False):
+        
+        with st.expander('**Similar Listings**', expanded = False):
+            if len(similar_listings):
                 st.dataframe(similar_listings)
-        else:
-            st.warning('No similar cars in the market. This car transaction is risky due to no data on potential profit and demand.')
+            else:
+                st.warning('No similar cars in the market.')
         
         
         if chosen_tab == '3':
@@ -1478,14 +1507,14 @@ if __name__ == '__main__':
                 if len(similar_listings):
                     market_value = round(similar_listings['price'].mean(), 2)
                     
-                    mv1, mv2, mv3, mv4 = st.columns(4)
+                    st.metric('Market Value',
+                              value = round(similar_listings['price'].mean(), 2),
+                              help = 'average from prices in similar listings tab')
                     
-                    with mv1:
-                        st.metric('Market Value',
-                                  value = round(similar_listings['price'].mean(), 2),
-                                  help = 'average from prices in similar listings tab')
+                    mv2, mv3, mv4 = st.columns(3)
+                    
                     with mv2:
-                        st.metric('Market Value (Min)',
+                        st.metric('Market Value (min)',
                                   value = min(similar_listings['price']),
                                   help = 'minimum from prices in similar listings tab')
                     with mv3:
@@ -1503,7 +1532,6 @@ if __name__ == '__main__':
                 
                 ## predicted appraised value
                 predicted_value = round(float(df_request['predicted_value'].values[0]), 2)
-
                 if pd.notna(market_value):
                     st.metric('Appraised value',
                               value = predicted_value,
@@ -1526,11 +1554,12 @@ if __name__ == '__main__':
                               )
                 
                 with gp_col:
-                    est_gp = round(0.5*(market_value+predicted_value) - asking_price, 2)
+                    avg_value = round(0.5*(market_value+predicted_value), 2)
+                    est_gp = round(avg_value - asking_price, 2)
                     st.metric('Estimated GP',
                               value = est_gp,
                               delta = f'{round((est_gp/asking_price)*100, 2)}%',
-                              help = 'compared to average of market value and appraised value')
+                              help = f'compared to average of market value and appraised value: {avg_value}')
                 
                 
                 ## DEMAND
