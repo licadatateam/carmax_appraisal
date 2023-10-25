@@ -1096,6 +1096,7 @@ def get_market_value(row, df):
 def mv_scores_apply(df, df2):
     
     df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
+    
     if 'po_value' in df2.columns:
         df2.loc[:, 'projected_gp'] = df2.apply(
             lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
@@ -1107,6 +1108,7 @@ def mv_scores_apply(df, df2):
 
     return df2
 
+@st.cache_data
 def calc_scores(row, df, df2):
     '''
     
@@ -1158,9 +1160,14 @@ def calc_scores(row, df, df2):
     else:
         market_value = predicted_value
     
-    request_info['gp_score'] = int(calc_gp_score(market_value,
-                                             predicted_value,
-                                             request_info['asking_price'].values[0]) * 100)
+    try:
+        request_info['gp_score'] = int(calc_gp_score(market_value,
+                                                 predicted_value,
+                                                 request_info['asking_price'].values[0]) * 100)
+    except:
+        request_info['gp_score'] = int(calc_gp_score(market_value,
+                                                 predicted_value,
+                                                 request_info['po_value'].values[0]) * 100)
     
     request_info['demand_score'] = int(calc_demand_score(request_info,
                                      df_bookings,
@@ -1179,7 +1186,7 @@ def convert_df(df):
      return df.to_csv().encode('utf-8')
 
 if __name__ == '__main__':
-    st.title('Carmax Appraisal App')
+    st.title('Carmax Price Evaluation App')
     # column names required for this func (no null values)
     start_cols = ['price', 'make', 'model', 'year', 'mileage',
                    'transmission', 'fuel_type', 'body_type']
@@ -1205,18 +1212,17 @@ if __name__ == '__main__':
     train_test_dict = train_test_prep(df_data[feat_cols])
     
     setup_container.info('Obtaining trained XGBoost model')
+    
     models, evals = import_model()
     setup_container.empty()
     
     chosen_tab = stx.tab_bar(data = [
         stx.TabBarItemData(id = '1', title = 'Appraisal Requests', description = ''),
         stx.TabBarItemData(id = '2', title = 'CMX Listings Market Survey', description = ''),
-        stx.TabBarItemData(id = '3', title = 'Manual', description = ''),
-        ], default = '3')
+        stx.TabBarItemData(id = '3', title = 'Custom Input', description = ''),
+        ], default = '2')
     
     placeholder = st.container()
-    placeholder2 = st.container()
-    placeholder3 = st.container()
     
     # Appraisal requests
     if chosen_tab == '1':
@@ -1234,7 +1240,7 @@ if __name__ == '__main__':
                                        _enc = train_test_dict['enc'])
             appraisal_container.info('Predicting values for appraisal requests')
             df_pred = models['XGB']['model'].predict(df_test)
-            df2.loc[:, 'predicted_value'] = df_pred
+            df2.loc[:, 'predicted_value'] = df_pred.round()
             df2 = mv_scores_apply(df, df2)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
@@ -1252,7 +1258,6 @@ if __name__ == '__main__':
             
             st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
             
-            ## TODO: Calculate market value, gp_score, demand_score in tables
             df_request = request_select(table)
             
             st.download_button(label = 'Export to CSV',
@@ -1267,6 +1272,7 @@ if __name__ == '__main__':
             ## Import carmax appraisal requests
             cmx_container.info('Importing CMX listings data')
             df1 = import_available_units()
+            
             cmx_container.info('Feature engineering CMX listings data')
             df2 = feature_engineering(df1, df).sort_values('id', ascending = False)
             
@@ -1274,13 +1280,12 @@ if __name__ == '__main__':
             cmx_container.info('Preparing CMX listings test data')
             df_test = test_prep(df2[feat_cols[1:]], 
                                        _enc = train_test_dict['enc'])
+            
             cmx_container.info('Predicting values for CMX listings')
             df_pred = models['XGB']['model'].predict(df_test)
             df2.loc[:, 'predicted_value'] = df_pred.round()
-            # market_value, mv_min, mv_max, mv_std
-            # df2 = df2.apply(lambda x: get_market_value(x, df), axis=1)
-            # df2.loc[:, 'projected_gp'] = df2.apply(lambda x: np.round(x['market_value'] - x['po_value']), axis=1)
-            # df2 = df2.apply(lambda x: calc_scores(x, df, df2), axis=1)
+            
+            # market value, gp & demand scores
             df2 = mv_scores_apply(df, df2)
         
             ## Output predicted appraised value for each entry (with shap breakdown)
@@ -1289,20 +1294,20 @@ if __name__ == '__main__':
                          'plate_no', 'days_on_hand', 'po_value', 'predicted_value', 'market_value', 
                          'market_value_min', 'market_value_max', 'market_value_std', 'sale_price', 
                          'projected_gp', 'gp_score', 'demand_score', 'overall_score', 'saleability', 'url']
-
+    
             cmx_container.empty()
             
             table = df2[show_cols]
             
             st.caption(f'Showing **{len(table)}** items. Select checkbox to show more info.')
             
-            ## TODO: Calculate market value, gp_score, demand_score in tables
             df_request = request_select(table)
             
             st.download_button(label = 'Export to CSV',
                                 data = convert_df(table),
                                 file_name = 'cmx_listings.csv',
                                 key = 'listings_dl')
+            
         
     elif chosen_tab == '3':
         with placeholder:
