@@ -1081,7 +1081,7 @@ def get_market_value(row, df):
         row['market_value_std'] = round(similar_cars.price.std(), 2)
     else:
         try:
-            market_value = round(similar_cars.price.values[0])
+            market_value = round(similar_cars.price.iloc[0])
             if pd.isna(market_value):
                 raise Exception
             else:
