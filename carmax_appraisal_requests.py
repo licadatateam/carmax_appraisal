@@ -209,7 +209,7 @@ def feature_engineering(df_, df_ref = None):
                             ref : pd.DataFrame) -> float:
             # ref = mileage_q
             try:
-                if pd.notna(ref.loc[year, 'std']):
+                if (pd.notna(ref.loc[year, 'std'])) and (ref.loc[year, 'std'] > 0):
                     return (mileage - ref.loc[year, 'mean'])/ref.loc[year, 'std']
                 else:
                     return (mileage - ref.loc[year, 'mean'])/ref.loc[year, 'mean']
