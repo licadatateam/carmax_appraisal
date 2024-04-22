@@ -13,7 +13,7 @@ from datetime import datetime
 from string import punctuation
 from decimal import Decimal
 from fuzzywuzzy import fuzz, process
-
+from pytz import timezone
 import bq_functions
 from google.cloud import storage
 import gspread
@@ -31,6 +31,7 @@ import doctest # run via doctest.testmod()
 # credentials.txt
 # secrets.json
 
+phtime = timezone('Asia/Manila')
 
 platform_gsheet = {'GULONG' : {'url' : 'https://docs.google.com/spreadsheets/d/1mHsdtKhdQkm0wals7wn_A5jOicf1WOBuonXEpF8bW0U/edit#gid=0'
                             },
@@ -1018,11 +1019,20 @@ def fix_names(sku_name, comp=None):
                         'KM3': 'MUD-TERRAIN T/A KM3', # BFGOODRICH
                         'KO2': 'ALL-TERRAIN T/A KO2', # BFGOODRICH
                         'TRAIL-TERRAIN T/A' : 'TRAIL-TERRAIN', # BFGOODRICH
-                        '265/70/R16 GEOLANDAR 112S': 'GEOLANDAR A/T G015',
-                        '265/65/R17 GEOLANDAR 112S' : 'GEOLANDAR A/T G015',
-                        '265/65/R17 GEOLANDAR 112H' : 'GEOLANDAR G902',
-                        'GEOLANDAR A/T 102S': 'GEOLANDAR A/T-S G012',
-                        'GEOLANDAR A/T': 'GEOLANDAR A/T G015',
+                        'GEOLANDAR A/T-S G012': 'GEOLANDAR A/T', #YOKOHAMA
+                        'GEOLANDAR A/T G015': 'GEOLANDAR A/T', #YOKOHAMA
+                        'GEOLANDAR CV G058' : 'GEOLANDAR CV', #YOKOHAMA
+                        'GEOLANDAR H/T G056' : 'GEOLANDAR H/T', #YOKOHAMA
+                        'GEOLANDAR SUV G055' : 'GEOLANDAR SUV', #YOKOHAMA
+                        'BLUEARTH VAN RY55' : 'BLUEARTH VAN', #YOKOHAMA
+                        'BLUEARTH XT AE61' : 'BLUEARTH AE61', #YOKOHAMA
+                        'BLUEARTH ES ES32' : 'BLUEARTH ES32', #YOKOHAMA
+                        'BLUEARTH GT AE51': 'BLUEARTH AE51', #YOKOHAMA
+                        'GEOLANDAR G94' : 'GEOLANDAR A/T', #YOKOHAMA
+                        'GEOLANDAR G902' : 'GEOLANDAR A/T', #YOKOHAMA
+                        'GEOLANDAR G98' : 'GEOLANDAR', #YOKOHAMA
+                        'ADVAN NEOVA AD09' : 'ADVAN NEOVA', #YOKOHAMA
+                        'ADVAN SPORT V105' : 'ADVAN SPORT', #YOKOHAMA
                         'ASSURACE MAXGUARD SUV': 'ASSURANCE MAXGUARD SUV', #GOODYEAR
                         'EFFICIENTGRIP SUV': 'EFFICIENTGRIP SUV', #GOODYEAR
                         'EFFICIENGRIP PERFORMANCE SUV':'EFFICIENTGRIP PERFORMANCE SUV', #GOODYEAR
@@ -1042,19 +1052,18 @@ def fix_names(sku_name, comp=None):
                         'DUELER A/T 693': 'DUELER A/T 693 RBT', # BRIDGESTONE
                         'DUELER H/T 840' : 'DUELER H/T 840 RBT', # BRIDGESTONE
                         'EVOLUTION MT': 'EVOLUTION M/T', #COOPER
-                        'BLUEARTH AE61' : 'BLUEARTH XT AE61', #YOKOHAMA
-                        'BLUEARTH ES32' : 'BLUEARTH ES ES32', #YOKOHAMA
-                        'BLUEARTH AE51': 'BLUEARTH GT AE51', #YOKOHAMA
                         'COOPER STT PRO': 'STT PRO',
                         'COOPER AT3 LT' : 'AT3 LT',
                         'COOPER AT3 XLT' : 'AT3 XLT',
                         'A/T3' : 'AT3',
-                        'ENERGY XM2' : 'ENERGY XM2',
                         'ENERGY XM+' : 'ENERGY XM2+',
                         'XM2+' : 'ENERGY XM2+',
+                        'XM2 +' : 'XM2+',
                         'AT3 XLT': 'AT3 XLT',
                         'ADVANTAGE T/A DRIVE' : 'ADVANTAGE T/A DRIVE',
-                        'ADVANTAGE T/A SUV' : 'ADVANTAGE T/A SUV'
+                        'ADVANTAGE T/A SUV' : 'ADVANTAGE T/A SUV',
+                        'AGILIS 3' :' AGILIS 3',
+                        'PRIMACY 4 ST' : 'PRIMACY 4 ST'
                         }
     
     if pd.isna(sku_name) or (sku_name is None):
@@ -1072,6 +1081,7 @@ def fix_names(sku_name, comp=None):
         
         # if match list provided
         
+        
         if comp is not None:
             # check if any name from list matches anything in sku name
             match_list = [n for n in comp if re.search(n, raw_name)]
@@ -1082,8 +1092,8 @@ def fix_names(sku_name, comp=None):
             elif len(match_list) > 1:
                 long_match = ''
                 for m in match_list:
-                    if len(m[0]) > len(long_match):
-                        long_match = m[0]
+                    if len(m) > len(long_match):
+                        long_match = m
                 return long_match
             # no match
             else:
@@ -1595,6 +1605,7 @@ def prep_competitor_data(platform = 'CARMAX'):
                 
             try:
                 df_clean = clean_df(df, platform = 'CARMAX')
+                df_clean.to_csv('competitors_compiled.csv')
             
             except:
                 raise Exception('Cleaning data failed.')
@@ -1606,7 +1617,7 @@ def prep_competitor_data(platform = 'CARMAX'):
                 ## attempt upload to GCS
                 try:
                     print ('Upload to BQ unsucessful. Attempting upload to GCS.')
-                    upload_to_gcloud(df_clean, )
+                    upload_to_gcloud(df_clean, 'carmax')
                     print ('Upload to GCS successful.')
                     
                 except:
