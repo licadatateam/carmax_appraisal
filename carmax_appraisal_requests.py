@@ -698,7 +698,7 @@ def request_select(df_data : pd.DataFrame):
         data_return_mode='AS_INPUT', 
         update_mode='MODEL_CHANGED', 
         fit_columns_on_grid_load=False,
-        enable_enterprise_modules=True,
+        enable_enterprise_modules=False,
         height= min(33*len(df_display), 400), 
         reload_data=False)
     
@@ -706,6 +706,7 @@ def request_select(df_data : pd.DataFrame):
     
     if len(selected):           
         # row/s are selected
+        st.write(selected)
         selected_row = [selected[0]['_selectedRowNodeInfo']['nodeRowIndex']]
         df_list = df_display.iloc[selected_row]
         
