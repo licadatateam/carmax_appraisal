@@ -707,9 +707,11 @@ def request_select(df_data : pd.DataFrame):
     if selected is not None:           
         # row/s are selected
         st.write(selected)
+        #st.write(selected[0])
         #selected_row = [selected[0]['_selectedRowNodeInfo']['nodeRowIndex']]
-        selected_row = [selected['_selectedRowNodeInfo']['nodeRowIndex']]
-        df_list = df_display.iloc[selected_row]
+        #selected_row = [selected['_selectedRowNodeInfo']['nodeRowIndex']]
+        df_list = selected
+        #df_list = df_display.iloc[selected_row]
         
     else:
         #df_list = df_display.iloc[[0]]
