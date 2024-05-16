@@ -704,7 +704,7 @@ def request_select(df_data : pd.DataFrame):
     
     selected = data_selection['selected_rows']
     
-    if selected:           
+    if len(selected):           
         # row/s are selected
         selected_row = [selected[0]['_selectedRowNodeInfo']['nodeRowIndex']]
         df_list = df_display.iloc[selected_row]
