@@ -704,7 +704,7 @@ def request_select(df_data : pd.DataFrame):
     
     selected = data_selection['selected_rows']
     
-    if len(selected):           
+    if selected is not None:           
         # row/s are selected
         st.write(selected)
         selected_row = [selected[0]['_selectedRowNodeInfo']['nodeRowIndex']]
