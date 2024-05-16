@@ -7,7 +7,7 @@ google-auth
 gspread
 matplotlib
 streamlit>=1.20.0
-streamlit-aggrid
+streamlit-aggrid==0.3.4
 extra_streamlit_components
 matplotlib
 scikit-learn
