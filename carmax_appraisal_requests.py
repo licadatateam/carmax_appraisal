@@ -1454,6 +1454,7 @@ if __name__ == '__main__':
             # visualize shap
             explainer = shap.Explainer(models['XGB']['model'].best_estimator_)
             #shap_values = explainer(df_test.iloc[[df_request.index[0]]])
+            # TODO: need to change from index to id
             shap_values = explainer(df_test[df_test.index.isin(df2[df2.id == df_request.id.values[0]].index)])
             
             # waterfall plot for first observation
